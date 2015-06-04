@@ -1,2 +1,2 @@
-github "Carthage/ReactiveTask" "master"
+github "norio-nomura/ReactiveTask" "use-test-branch-of-reactivecocoa"
 github "thoughtbot/Argo" ~> 1.0.1
