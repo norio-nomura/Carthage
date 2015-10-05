@@ -1222,6 +1222,21 @@ public func buildInDirectory(directoryURL: NSURL, withConfiguration configuratio
 	}
 }
 
+/// Sends the URL to each framework bundle found in the Frameworks directory.
+/// Enumerate shallowly for calling `stripFramework()` recursively.
+private func nestedFrameworksInFramework(frameworkURL: NSURL) -> SignalProducer<NSURL, CarthageError> {
+	let typeIdentifier = kUTTypeFramework as! String
+	let directoryURL = frameworkURL.URLByAppendingPathComponent("Frameworks", isDirectory: true)
+	return NSFileManager.defaultManager().carthage_enumeratorAtURL(directoryURL, includingPropertiesForKeys: [ NSURLTypeIdentifierKey ], options: .SkipsHiddenFiles | .SkipsPackageDescendants | .SkipsSubdirectoryDescendants, catchErrors: true)
+		|> map { enumerator, URL in URL }
+		|> filter { URL in
+			return URL.typeIdentifier
+				.analysis(ifSuccess: { identifier in
+					return UTTypeConformsTo(identifier, typeIdentifier) != 0
+					}, ifFailure: { _ in false })
+	}
+}
+
 /// Strips a framework from unexpected architectures, optionally codesigning the
 /// result.
 public func stripFramework(frameworkURL: NSURL, #keepingArchitectures: [String], codesigningIdentity: String? = nil) -> SignalProducer<(), CarthageError> {
@@ -1232,10 +1247,16 @@ public func stripFramework(frameworkURL: NSURL, #keepingArchitectures: [String],
 	// Xcode doesn't copy `Modules` directory at all.
 	let stripModules = stripModulesDirectory(frameworkURL)
 
+	let stripNestedFrameworks = nestedFrameworksInFramework(frameworkURL)
+		|> flatMap(.Concat) {
+			stripFramework($0, keepingArchitectures: keepingArchitectures, codesigningIdentity: codesigningIdentity)
+		}
+
 	let sign = codesigningIdentity.map { codesign(frameworkURL, $0) } ?? .empty
 
 	return stripArchitectures
 		|> concat(stripModules)
+		|> concat(stripNestedFrameworks)
 		|> concat(sign)
 }
 
